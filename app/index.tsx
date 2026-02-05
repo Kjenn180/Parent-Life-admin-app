@@ -1,14 +1,23 @@
+import { createBaby } from "../src/services/babyService";
 import { useEffect, useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth } from "../src/lib/firebase";
+import { ensureUserAndHousehold } from "../src/services/householdService";
+
+
 
 export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [householdId, setHouseholdId] = useState<string | null>(null);
+  const [babyName, setBabyName] = useState("");
+  const [babyDob, setBabyDob] = useState("");
 
+
+  // 🔐 Listen for login state
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -16,6 +25,29 @@ export default function Home() {
     });
     return unsub;
   }, []);
+
+  // 🏠 Ensure household exists for user
+  useEffect(() => {
+    const run = async () => {
+      if (!user?.uid || !user.email) return;
+  
+      try {
+        console.log("Creating / fetching household...");
+        const hid = await ensureUserAndHousehold(user.uid, user.email);
+        setHouseholdId(hid);
+        console.log("Household ready:", hid);
+      } catch (e: any) {
+        console.log("HOUSEHOLD ERROR:", e?.message || e);
+        Alert.alert(
+          "Connection issue",
+          "Could not reach database. Check internet and try again."
+        );
+      }
+    };
+  
+    run();
+  }, [user]);
+  
 
   const signup = async () => {
     try {
@@ -48,26 +80,76 @@ export default function Home() {
     );
   }
 
+  const handleCreateBaby = async () => {
+    // 🛡 VALIDATION GUARD (goes FIRST)
+    if (!householdId) return;
+  
+    if (!babyName.trim()) {
+      return Alert.alert("Missing info", "Please enter a baby name.");
+    }
+  
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(babyDob)) {
+      return Alert.alert(
+        "Invalid DOB",
+        "Use format YYYY-MM-DD (example: 2024-05-28)"
+      );
+    }
+  
+    // ✅ If validation passes, continue to database
+    try {
+      await createBaby(householdId, babyName, babyDob);
+      Alert.alert("Success", "Baby profile created!");
+      setBabyName("");
+      setBabyDob("");
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    }
+  };
+  
+  
   // ✅ Logged in UI
   if (user) {
     return (
       <View style={styles.container}>
         <Text style={styles.title}>Dashboard ✅</Text>
+
         <Text style={styles.sub}>Logged in as:</Text>
         <Text style={styles.email}>{user.email}</Text>
+
+        <Text style={styles.sub}>Household ID:</Text>
+        <Text style={styles.email}>{householdId ?? "Connecting to database..."}</Text>
+        <Text style={styles.sub}>Create Baby Profile</Text>
+
+<TextInput
+  style={styles.input}
+  placeholder="Baby name"
+  value={babyName}
+  onChangeText={setBabyName}
+/>
+
+<TextInput
+  style={styles.input}
+  placeholder="DOB (YYYY-MM-DD)"
+  value={babyDob}
+  onChangeText={setBabyDob}
+/>
+
+<Pressable style={styles.button} onPress={handleCreateBaby}>
+  <Text style={styles.buttonText}>Add Baby</Text>
+</Pressable>
 
         <Pressable style={styles.button} onPress={logout}>
           <Text style={styles.buttonText}>Log out</Text>
         </Pressable>
 
         <Text style={styles.note}>
-          Next: Household + baby profile + event logging.
+          Next: Create Baby Profile
         </Text>
       </View>
     );
   }
 
-  // ✅ Logged out UI
+  // ❌ Logged out UI
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Parent Life Admin</Text>
